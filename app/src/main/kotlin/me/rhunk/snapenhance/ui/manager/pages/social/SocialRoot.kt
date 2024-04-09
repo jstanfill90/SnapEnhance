@@ -88,7 +88,7 @@ class SocialRoot : Routes.Route() {
             if (listSize == 0) {
                 item {
                     Text(
-                        text = "(empty)", modifier = Modifier
+                        text = translation["empty_hint"], modifier = Modifier
                             .fillMaxWidth()
                             .padding(10.dp), textAlign = TextAlign.Center
                     )
@@ -212,7 +212,9 @@ class SocialRoot : Routes.Route() {
 
     @OptIn(ExperimentalFoundationApi::class)
     override val content: @Composable (NavBackStackEntry) -> Unit = {
-        val titles = listOf("Friends", "Groups")
+        val titles = remember {
+            listOf(translation["friends_tab"], translation["groups_tab"])
+        }
         val coroutineScope = rememberCoroutineScope()
         val pagerState = rememberPagerState { titles.size }
         var showAddFriendDialog by remember { mutableStateOf(false) }

@@ -84,6 +84,9 @@
                 "saved_config_snackbar": "Config saved"
             },
             "social": {
+                "friends_tab": "Friends",
+                "groups_tab": "Groups",
+                "empty_hint": "(empty)",
                 "streaks_expiration_short": "{hours}h"
             },
             "manage_scope": {
@@ -668,6 +671,10 @@
                     "default_volume_controls": {
                         "name": "Default Volume Controls",
                         "description": "Forces Snapchat to use system volume controls"
+                    },
+                    "hide_active_music": {
+                        "name": "Hide Active Music",
+                        "description": "Prevents Snapchat from knowing you're listening to music\nThis will allow you to take snaps using control volume buttons while listening to music"
                     },
                     "disable_snap_splitting": {
                         "name": "Disable Snap Splitting",
