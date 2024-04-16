@@ -488,6 +488,10 @@
                         "name": "Unlimited Snap View Time",
                         "description": "Removes the Time Limit for viewing Snaps"
                     },
+                    "auto_mark_as_read": {
+                        "name": "Auto Mark as Read",
+                        "description": "Automatically marks messages as read when sending a message to a conversation, even when Stealth Mode is enabled"
+                    },
                     "loop_media_playback": {
                         "name": "Loop Media Playback",
                         "description": "Loops media playback when viewing Snaps / Stories"
@@ -842,13 +846,15 @@
                         "name": "Edit Messages",
                         "description": "Allows you to edit messages in conversations"
                     },
-                    "app_passcode": {
-                        "name": "App Passcode",
-                        "description": "Sets a passcode to lock the app"
-                    },
-                    "app_lock_on_resume": {
-                        "name": "App Lock On Resume",
-                        "description": "Locks the app when it's reopened"
+                    "app_lock": {
+                        "name": "App Lock",
+                        "description": "Prevents access to Snapchat without a passcode",
+                        "properties": {
+                            "lock_on_resume": {
+                                "name": "Lock On Resume",
+                                "description": "Locks the app when it's reopened"
+                            }
+                        }
                     },
                     "infinite_story_boost": {
                         "name": "Infinite Story Boost",
@@ -1312,6 +1318,12 @@
     "streaks_reminder": {
         "notification_title": "Streaks",
         "notification_text": "You will lose your Streak with {friend} in {hoursLeft} hours"
+    },
+
+    "biometric_auth": {
+        "unlock_button": "Unlock",
+        "title": "Unlock Snapchat",
+        "subtitle": "Please authenticate to unlock Snapchat"
     },
 
     "end_to_end_encryption": {
