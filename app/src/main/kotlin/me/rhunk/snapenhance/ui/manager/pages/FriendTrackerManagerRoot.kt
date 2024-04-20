@@ -10,6 +10,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,11 +25,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.PopupProperties
 import androidx.navigation.NavBackStackEntry
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import me.rhunk.snapenhance.common.bridge.wrapper.TrackerLog
 import me.rhunk.snapenhance.common.data.*
+import me.rhunk.snapenhance.common.util.snap.BitmojiSelfie
 import me.rhunk.snapenhance.ui.manager.Routes
 import me.rhunk.snapenhance.ui.manager.pages.social.AddFriendDialog
+import me.rhunk.snapenhance.ui.util.coil.BitmojiImage
 import me.rhunk.snapenhance.ui.util.pagerTabIndicatorOffset
 import java.text.DateFormat
 
@@ -98,9 +105,18 @@ class FriendTrackerManagerRoot : Routes.Route() {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 var showAutoComplete by remember { mutableStateOf(false) }
-                ExposedDropdownMenuBox(expanded = showAutoComplete, onExpandedChange = { showAutoComplete = it }) {
+                var dropDownExpanded by remember { mutableStateOf(false) }
+
+                ExposedDropdownMenuBox(
+                    expanded = showAutoComplete,
+                    onExpandedChange = { showAutoComplete = it },
+                ) {
                     TextField(
                         value = filter,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor()
+                            .padding(8.dp),
                         onValueChange = {
                             filter = it
                             coroutineScope.launch {
@@ -113,68 +129,86 @@ class FriendTrackerManagerRoot : Routes.Route() {
                             }
                         },
                         placeholder = { Text("Search") },
-                        maxLines = 1,
                         colors = TextFieldDefaults.colors(
                             focusedContainerColor = Color.Transparent,
                             unfocusedContainerColor = Color.Transparent
                         ),
-                        modifier = Modifier
-                            .weight(1F)
-                            .menuAnchor()
-                            .padding(8.dp)
+                        maxLines = 1,
+                        leadingIcon = {
+                            ExposedDropdownMenuBox(
+                                expanded = dropDownExpanded,
+                                onExpandedChange = { dropDownExpanded = it },
+                            ) {
+                                ElevatedCard(
+                                    modifier = Modifier.menuAnchor().padding(2.dp)
+                                ) {
+                                    Text(filterType.name, modifier = Modifier.padding(8.dp))
+                                }
+                                DropdownMenu(expanded = dropDownExpanded, onDismissRequest = {
+                                    dropDownExpanded = false
+                                }) {
+                                    FilterType.entries.forEach { type ->
+                                        DropdownMenuItem(onClick = {
+                                            filter = ""
+                                            filterType = type
+                                            dropDownExpanded = false
+                                            coroutineScope.launch {
+                                                resetAndLoadLogs()
+                                            }
+                                        }, text = {
+                                            Text(type.name)
+                                        })
+                                    }
+                                }
+                            }
+                        },
+                        trailingIcon = {
+                            if (filter != "") {
+                                IconButton(onClick = {
+                                    filter = ""
+                                    coroutineScope.launch {
+                                        resetAndLoadLogs()
+                                    }
+                                }) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Clear")
+                                }
+                            }
+
+                            DropdownMenu(
+                                expanded = showAutoComplete,
+                                onDismissRequest = {
+                                    showAutoComplete = false
+                                },
+                                properties = PopupProperties(focusable = false),
+                            ) {
+                                val suggestedEntries = remember(filter) {
+                                    mutableStateListOf<String>()
+                                }
+
+                                LaunchedEffect(filter) {
+                                    launch(Dispatchers.IO) {
+                                        suggestedEntries.addAll(when (filterType) {
+                                            FilterType.USERNAME -> context.messageLogger.findUsername(filter)
+                                            FilterType.CONVERSATION -> context.messageLogger.findConversation(filter) + context.messageLogger.findUsername(filter)
+                                            FilterType.EVENT -> TrackerEventType.entries.filter { it.name.contains(filter, ignoreCase = true) }.map { it.key }
+                                        }.take(5))
+                                    }
+                                }
+
+                                suggestedEntries.forEach { entry ->
+                                    DropdownMenuItem(onClick = {
+                                        filter = entry
+                                        coroutineScope.launch {
+                                            resetAndLoadLogs()
+                                        }
+                                        showAutoComplete = false
+                                    }, text = {
+                                        Text(entry)
+                                    })
+                                }
+                            }
+                        },
                     )
-
-                    DropdownMenu(expanded = showAutoComplete, onDismissRequest = {
-                        showAutoComplete = false
-                    }, properties = PopupProperties(focusable = false)) {
-                        val suggestedEntries = remember(filter) {
-                            mutableStateListOf<String>()
-                        }
-
-                        LaunchedEffect(filter) {
-                            suggestedEntries.addAll(when (filterType) {
-                                FilterType.USERNAME -> context.messageLogger.findUsername(filter)
-                                FilterType.CONVERSATION -> context.messageLogger.findConversation(filter) + context.messageLogger.findUsername(filter)
-                                FilterType.EVENT -> TrackerEventType.entries.filter { it.name.contains(filter, ignoreCase = true) }.map { it.key }
-                            }.take(5))
-                        }
-
-                        suggestedEntries.forEach { entry ->
-                            DropdownMenuItem(onClick = {
-                                filter = entry
-                                coroutineScope.launch {
-                                    resetAndLoadLogs()
-                                }
-                                showAutoComplete = false
-                            }, text = {
-                                Text(entry)
-                            })
-                        }
-                    }
-                }
-
-                var dropDownExpanded by remember { mutableStateOf(false) }
-                ExposedDropdownMenuBox(expanded = dropDownExpanded, onExpandedChange = { dropDownExpanded = it }) {
-                    ElevatedCard(
-                        modifier = Modifier.menuAnchor()
-                    ) {
-                        Text("Filter " + filterType.name, modifier = Modifier.padding(8.dp))
-                    }
-                    DropdownMenu(expanded = dropDownExpanded, onDismissRequest = {
-                        dropDownExpanded = false
-                    }) {
-                        FilterType.entries.forEach { type ->
-                            DropdownMenuItem(onClick = {
-                                filterType = type
-                                dropDownExpanded = false
-                                coroutineScope.launch {
-                                    resetAndLoadLogs()
-                                }
-                            }, text = {
-                                Text(type.name)
-                            })
-                        }
-                    }
                 }
             }
 
@@ -188,7 +222,7 @@ class FriendTrackerManagerRoot : Routes.Route() {
                             .fillMaxWidth(), textAlign = TextAlign.Center, fontWeight = FontWeight.Light)
                     }
                 }
-                items(logs) { log ->
+                items(logs, key = { it.userId + it.id }) { log ->
                     ElevatedCard(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -198,15 +232,35 @@ class FriendTrackerManagerRoot : Routes.Route() {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
+                            var databaseFriend by remember { mutableStateOf<MessagingFriendInfo?>(null) }
+
+                            LaunchedEffect(Unit) {
+                                launch(Dispatchers.IO) {
+                                    databaseFriend = context.modDatabase.getFriendInfo(log.userId)
+                                }
+                            }
+                            BitmojiImage(
+                                modifier = Modifier.padding(10.dp),
+                                size = 70,
+                                context = context,
+                                url = databaseFriend?.takeIf { it.bitmojiId != null }?.let {
+                                    BitmojiSelfie.getBitmojiSelfie(it.selfieId, it.bitmojiId, BitmojiSelfie.BitmojiSelfieType.NEW_THREE_D)
+                                },
+                            )
+
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
                             ) {
-                                Text(log.username + " " + log.eventType + " in " + log.conversationTitle)
+                                Text(databaseFriend?.displayName?.let {
+                                    "$it (${log.username})"
+                                } ?: log.username)
+                                Text("${log.eventType} in ${log.conversationTitle}", fontSize = 15.sp, fontWeight = FontWeight.Light)
                                 Text(
                                     DateFormat.getDateTimeInstance().format(log.timestamp),
-                                    fontSize = 12.sp,
+                                    fontSize = 10.sp,
                                     fontWeight = FontWeight.Light
                                 )
                             }
@@ -378,7 +432,8 @@ class FriendTrackerManagerRoot : Routes.Route() {
                         val showDropdown = remember { mutableStateOf(false) }
 
                         Row(
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
                                 .padding(2.dp),
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
