@@ -1,13 +1,16 @@
 package me.rhunk.snapenhance.ui.manager.pages
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
@@ -18,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -32,6 +36,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.rhunk.snapenhance.common.bridge.wrapper.TrackerLog
 import me.rhunk.snapenhance.common.data.*
+import me.rhunk.snapenhance.common.ui.rememberAsyncMutableState
+import me.rhunk.snapenhance.common.ui.rememberAsyncMutableStateList
+import me.rhunk.snapenhance.common.ui.rememberAsyncUpdateDispatcher
 import me.rhunk.snapenhance.common.util.snap.BitmojiSelfie
 import me.rhunk.snapenhance.ui.manager.Routes
 import me.rhunk.snapenhance.ui.manager.pages.social.AddFriendDialog
@@ -48,10 +55,9 @@ class FriendTrackerManagerRoot : Routes.Route() {
 
     private val titles = listOf("Logs", "Rules")
     private var currentPage by mutableIntStateOf(0)
-    private val showAddRulePopup = mutableStateOf(false)
+    private var showAddRulePopup by mutableStateOf(false)
 
     override val floatingActionButton: @Composable () -> Unit = {
-        var showAddRulePopup by remember { showAddRulePopup }
         if (currentPage == 1) {
             ExtendedFloatingActionButton(
                 icon = { Icon(Icons.Default.Add, contentDescription = "Add Rule") },
@@ -140,7 +146,9 @@ class FriendTrackerManagerRoot : Routes.Route() {
                                 onExpandedChange = { dropDownExpanded = it },
                             ) {
                                 ElevatedCard(
-                                    modifier = Modifier.menuAnchor().padding(2.dp)
+                                    modifier = Modifier
+                                        .menuAnchor()
+                                        .padding(2.dp)
                                 ) {
                                     Text(filterType.name, modifier = Modifier.padding(8.dp))
                                 }
@@ -291,37 +299,50 @@ class FriendTrackerManagerRoot : Routes.Route() {
     @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
     @Composable
     private fun EditRuleDialog(
-        ruleId: Int? = null,
+        currentRuleId: Int? = null,
         onDismiss: () -> Unit = {}
     ) {
-        var currentRuleId by remember { mutableStateOf(ruleId) }
-        val events = remember { mutableStateListOf<TrackerRuleEvent>() }
-        val scopes = remember { mutableStateListOf<String>() }
+        val events = rememberAsyncMutableStateList(defaultValue = emptyList()) {
+            currentRuleId?.let { ruleId ->
+                context.modDatabase.getTrackerEvents(ruleId)
+            } ?: emptyList()
+        }
         var currentScopeType by remember { mutableStateOf(TrackerScopeType.BLACKLIST) }
-
-        LaunchedEffect(Unit) {
-            currentRuleId = ruleId ?: context.modDatabase.newTrackerRule()
-            events.addAll(context.modDatabase.getTrackerEvents(currentRuleId ?: return@LaunchedEffect).toMutableList())
-            scopes.addAll(context.modDatabase.getRuleTrackerScopes(currentRuleId ?: return@LaunchedEffect).also {
-                currentScopeType = if (it.isEmpty()) {
-                    TrackerScopeType.WHITELIST
-                } else {
-                    it.values.first()
-                }
-            }.map { it.key })
+        val scopes = rememberAsyncMutableStateList(defaultValue = emptyList()) {
+            currentRuleId?.let { ruleId ->
+                context.modDatabase.getRuleTrackerScopes(ruleId).also {
+                    currentScopeType = if (it.isEmpty()) {
+                        TrackerScopeType.WHITELIST
+                    } else {
+                        it.values.first()
+                    }
+                }.map { it.key }
+            } ?: emptyList()
+        }
+        val ruleName = rememberAsyncMutableState(defaultValue = "", keys = arrayOf(currentRuleId)) {
+            currentRuleId?.let { ruleId ->
+                context.modDatabase.getTrackerRule(ruleId)?.name ?: "Custom Rule"
+            } ?: "Custom Rule"
         }
 
         fun saveRule() {
-            events.forEach { event ->
-                context.modDatabase.addOrUpdateTrackerRuleEvent(
-                    event.id.takeIf { it > -1 },
-                    currentRuleId,
-                    event.eventType,
-                    event.params,
-                    event.actions
-                )
+            runCatching {
+                val ruleId = currentRuleId ?: context.modDatabase.newTrackerRule()
+                events.forEach { event ->
+                    context.modDatabase.addOrUpdateTrackerRuleEvent(
+                        event.id.takeIf { it > -1 },
+                        ruleId,
+                        event.eventType,
+                        event.params,
+                        event.actions
+                    )
+                }
+                context.modDatabase.setTrackerRuleName(ruleId, ruleName.value.trim())
+                context.modDatabase.setRuleTrackerScopes(ruleId, currentScopeType, scopes)
+            }.onFailure {
+                context.log.error("Failed to save rule", it)
+                context.shortToast("Failed to save rule. Please check logs for more details.")
             }
-            context.modDatabase.setRuleTrackerScopes(currentRuleId ?: return, currentScopeType, scopes)
         }
 
         @Composable
@@ -354,7 +375,29 @@ class FriendTrackerManagerRoot : Routes.Route() {
             onDismissRequest = {
                 onDismiss()
             },
-            title = { Text("Rule $currentRuleId") },
+            title = {
+                TextField(
+                    value = ruleName.value,
+                    onValueChange = {
+                        ruleName.value = it
+                    },
+                    singleLine = true,
+                    placeholder = {
+                        Text(
+                            "Rule Name",
+                            fontSize = 18.sp,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent
+                    ),
+                    textStyle = TextStyle(fontSize = 20.sp, textAlign = TextAlign.Center, fontWeight = FontWeight.Bold)
+                )
+            },
             text = {
                 Column(
                     modifier = Modifier
@@ -392,6 +435,8 @@ class FriendTrackerManagerRoot : Routes.Route() {
                             )
                         }
 
+                        val isScopesEmpty = scopes.isEmpty()
+
                         Button(
                             onClick = {
                                 currentScopeType = TrackerScopeType.BLACKLIST
@@ -400,9 +445,9 @@ class FriendTrackerManagerRoot : Routes.Route() {
                                     friendDialogActions
                                 )
                             },
-                            colors = if (currentScopeType == TrackerScopeType.BLACKLIST) ButtonDefaults.buttonColors() else ButtonDefaults.elevatedButtonColors()
+                            colors = if (!isScopesEmpty && currentScopeType == TrackerScopeType.BLACKLIST) ButtonDefaults.buttonColors() else ButtonDefaults.elevatedButtonColors()
                         ) {
-                            Text("Blacklist" + if (currentScopeType == TrackerScopeType.BLACKLIST) " (" + scopes.size.toString() + ")" else "")
+                            Text("Blacklist" + if (currentScopeType == TrackerScopeType.BLACKLIST && !isScopesEmpty) " (" + scopes.size.toString() + ")" else "")
                         }
 
                         Button(
@@ -413,9 +458,9 @@ class FriendTrackerManagerRoot : Routes.Route() {
                                     friendDialogActions
                                 )
                             },
-                            colors = if (currentScopeType == TrackerScopeType.WHITELIST) ButtonDefaults.buttonColors() else ButtonDefaults.elevatedButtonColors()
+                            colors = if (!isScopesEmpty && currentScopeType == TrackerScopeType.WHITELIST) ButtonDefaults.buttonColors() else ButtonDefaults.elevatedButtonColors()
                         ) {
-                            Text("Whitelist" + if (currentScopeType == TrackerScopeType.WHITELIST) " (" + scopes.size.toString() + ")" else "")
+                            Text("Whitelist" + if (currentScopeType == TrackerScopeType.WHITELIST && !isScopesEmpty) " (" + scopes.size.toString() + ")" else "")
                         }
 
                         addFriendDialog?.Content {
@@ -535,11 +580,13 @@ class FriendTrackerManagerRoot : Routes.Route() {
             },
 
             dismissButton = {
-                Button(onClick = {
-                    context.modDatabase.deleteTrackerRule(currentRuleId ?: return@Button)
-                    onDismiss()
-                }) {
-                    Text("Delete")
+                currentRuleId?.let { ruleId ->
+                    Button(onClick = {
+                        context.modDatabase.deleteTrackerRule(ruleId)
+                        onDismiss()
+                    }) {
+                        Text("Delete")
+                    }
                 }
             }
         )
@@ -547,8 +594,11 @@ class FriendTrackerManagerRoot : Routes.Route() {
 
     @Composable
     private fun ConfigRulesTab() {
-        val rules = remember { mutableStateListOf<TrackerRule>() }
-        var editRuleId by remember { mutableStateOf<Int?>(null) }
+        val updateRules = rememberAsyncUpdateDispatcher()
+        val rules = rememberAsyncMutableStateList(defaultValue = listOf(), updateDispatcher = updateRules) {
+            context.modDatabase.getTrackerRules()
+        }
+        val coroutineScope = rememberCoroutineScope()
 
         Column(
             modifier = Modifier.fillMaxSize()
@@ -564,45 +614,107 @@ class FriendTrackerManagerRoot : Routes.Route() {
                     }
                 }
                 items(rules, key = { it.id }) { rule ->
-                    var eventCount by remember { mutableIntStateOf(0) }
+                    val updateRuleState = rememberAsyncUpdateDispatcher()
+                    val ruleName by rememberAsyncMutableState(defaultValue = rule.name, updateDispatcher = updateRuleState) {
+                        context.modDatabase.getTrackerRule(rule.id)?.name ?: "(empty)"
+                    }
+                    val eventCount by rememberAsyncMutableState(defaultValue = 0, updateDispatcher = updateRuleState) {
+                        context.modDatabase.getTrackerEvents(rule.id).size
+                    }
+                    val scopeCount by rememberAsyncMutableState(defaultValue = 0, updateDispatcher = updateRuleState) {
+                        context.modDatabase.getRuleTrackerScopes(rule.id).size
+                    }
 
-                    LaunchedEffect(rule.id, editRuleId) {
-                        launch(Dispatchers.IO) {
-                            eventCount = context.modDatabase.getTrackerEvents(rule.id).size
-                        }
+                    var editRuleDialog by remember { mutableStateOf(false) }
+
+                    if (editRuleDialog) {
+                        EditRuleDialog(rule.id, onDismiss = {
+                            context.modDatabase.executeAsync {
+                                if (context.modDatabase.getTrackerRule(rule.id) == null) {
+                                    coroutineScope.launch {
+                                        rules.removeIf { it.id == rule.id }
+                                    }
+                                }
+                                editRuleDialog = false
+                                updateRuleState.dispatch()
+                            }
+                        })
                     }
 
                     ElevatedCard(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { editRuleId = rule.id }
+                            .clickable { editRuleDialog = true }
                             .padding(5.dp)
                     ) {
-                        Column(
+                        Row(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                                .fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Rule ${rule.id} ${rule.name}")
-                            Text("has $eventCount events")
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp)
+                                    .weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(ruleName, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                                Text(buildString {
+                                    append(eventCount)
+                                    append(" events")
+                                    if (scopeCount > 0) {
+                                        append(", ")
+                                        append(scopeCount)
+                                        append(" scopes")
+                                    }
+                                }, fontSize = 13.sp, fontWeight = FontWeight.Light)
+                            }
+
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalArrangement = Arrangement.End,
+                            ) {
+                                val scopesBitmoji = rememberAsyncMutableStateList(defaultValue = emptyList(), updateDispatcher = updateRuleState) {
+                                    context.modDatabase.getRuleTrackerScopes(rule.id, limit = 10).mapNotNull {
+                                        context.modDatabase.getFriendInfo(it.key)?.let { friend ->
+                                            friend.selfieId to friend.bitmojiId
+                                        }
+                                    }.take(4)
+                                }
+
+                                scopesBitmoji.forEachIndexed { index, friend ->
+                                    Box(
+                                        modifier = Modifier
+                                            .offset(x = (-index * 20).dp + (scopesBitmoji.size * 14).dp)
+                                    ) {
+                                        BitmojiImage(
+                                            size = 50,
+                                            modifier = Modifier
+                                                .border(
+                                                    BorderStroke(1.dp, Color.White),
+                                                    CircleShape
+                                                )
+                                                .background(Color.White, CircleShape)
+                                                .clip(CircleShape),
+                                            context = context,
+                                            url = BitmojiSelfie.getBitmojiSelfie(friend.first, friend.second, BitmojiSelfie.BitmojiSelfieType.NEW_THREE_D),
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
         }
 
-        if (editRuleId != null) {
-            EditRuleDialog(editRuleId, onDismiss = {
-                editRuleId = null
-            })
-        }
-
-        LaunchedEffect(showAddRulePopup.value, editRuleId) {
-            rules.clear()
-            rules.addAll(withContext(Dispatchers.IO) {
-                context.modDatabase.getTrackerRules()
-            })
+        if (showAddRulePopup) {
+            DisposableEffect(Unit) {
+                onDispose {
+                    updateRules.dispatch()
+                }
+            }
         }
     }
 

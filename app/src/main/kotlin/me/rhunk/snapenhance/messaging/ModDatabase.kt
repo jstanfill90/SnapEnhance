@@ -410,6 +410,22 @@ class ModDatabase(
         return rules
     }
 
+    fun getTrackerRule(ruleId: Int): TrackerRule? {
+        return database.rawQuery("SELECT * FROM tracker_rules WHERE id = ?", arrayOf(ruleId.toString())).use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            TrackerRule(
+                id = cursor.getInteger("id"),
+                name = cursor.getStringOrNull("name") ?: "",
+            )
+        }
+    }
+
+    fun setTrackerRuleName(ruleId: Int, name: String) {
+        executeAsync {
+            database.execSQL("UPDATE tracker_rules SET name = ? WHERE id = ?", arrayOf(name, ruleId))
+        }
+    }
+
     fun getTrackerEvents(ruleId: Int): List<TrackerRuleEvent> {
         val events = mutableListOf<TrackerRuleEvent>()
         database.rawQuery("SELECT * FROM tracker_rules_events WHERE rule_id = ?", arrayOf(ruleId.toString())).use { cursor ->
@@ -472,9 +488,9 @@ class ModDatabase(
         }
     }
 
-    fun getRuleTrackerScopes(ruleId: Int): Map<String, TrackerScopeType> {
+    fun getRuleTrackerScopes(ruleId: Int, limit: Int = Int.MAX_VALUE): Map<String, TrackerScopeType> {
         val scopes = mutableMapOf<String, TrackerScopeType>()
-        database.rawQuery("SELECT * FROM tracker_scopes WHERE rule_id = ?", arrayOf(ruleId.toString())).use { cursor ->
+        database.rawQuery("SELECT * FROM tracker_scopes WHERE rule_id = ? LIMIT ?", arrayOf(ruleId.toString(), limit.toString())).use { cursor ->
             while (cursor.moveToNext()) {
                 scopes[cursor.getStringOrNull("scope_id") ?: continue] = TrackerScopeType.entries.find { it.key == cursor.getStringOrNull("scope_type") } ?: continue
             }
