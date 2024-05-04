@@ -636,7 +636,9 @@ class FriendTrackerManagerRoot : Routes.Route() {
                                     }
                                 }
                                 editRuleDialog = false
-                                updateRuleState.dispatch()
+                                coroutineScope.launch {
+                                    updateRuleState.dispatch()
+                                }
                             }
                         })
                     }
@@ -712,7 +714,9 @@ class FriendTrackerManagerRoot : Routes.Route() {
         if (showAddRulePopup) {
             DisposableEffect(Unit) {
                 onDispose {
-                    updateRules.dispatch()
+                    coroutineScope.launch {
+                        updateRules.dispatch()
+                    }
                 }
             }
         }

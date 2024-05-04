@@ -27,6 +27,7 @@ import me.rhunk.snapenhance.RemoteSideContext
 import me.rhunk.snapenhance.common.ReceiversConfig
 import me.rhunk.snapenhance.common.data.MessagingFriendInfo
 import me.rhunk.snapenhance.common.data.MessagingGroupInfo
+import me.rhunk.snapenhance.common.ui.rememberAsyncMutableState
 import me.rhunk.snapenhance.common.util.snap.BitmojiSelfie
 import me.rhunk.snapenhance.common.util.snap.SnapWidgetBroadcastReceiverHelper
 import me.rhunk.snapenhance.ui.util.coil.BitmojiImage
@@ -42,23 +43,31 @@ class AddFriendDialog(
         val getGroupState: (group: MessagingGroupInfo) -> Boolean,
     )
 
+    private val stateCache = mutableMapOf<String, Boolean>()
     private val translation by lazy { context.translation.getCategory("manager.dialogs.add_friend")}
 
     @Composable
     private fun ListCardEntry(
+        id: String,
         bitmoji: String? = null,
         name: String,
         getCurrentState: () -> Boolean,
         onState: (Boolean) -> Unit = {},
     ) {
-        var currentState by remember { mutableStateOf(getCurrentState()) }
+        var currentState by rememberAsyncMutableState(defaultValue = stateCache[id] ?: false) {
+            getCurrentState().also { stateCache[id] = it }
+        }
+        val coroutineScope = rememberCoroutineScope()
 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable {
                     currentState = !currentState
-                    onState(currentState)
+                    stateCache[id] = currentState
+                    coroutineScope.launch(Dispatchers.IO) {
+                        onState(currentState)
+                    }
                 }
                 .padding(4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -76,16 +85,16 @@ class AddFriendDialog(
                 fontSize = 15.sp,
                 modifier = Modifier
                     .weight(1f)
-                    .onGloballyPositioned {
-                        currentState = getCurrentState()
-                    }
             )
 
             Checkbox(
                 checked = currentState,
                 onCheckedChange = {
                     currentState = it
-                    onState(currentState)
+                    stateCache[id] = currentState
+                    coroutineScope.launch(Dispatchers.IO) {
+                        onState(currentState)
+                    }
                 }
             )
         }
@@ -236,6 +245,7 @@ class AddFriendDialog(
                     items(filteredGroups.size) {
                         val group = filteredGroups[it]
                         ListCardEntry(
+                            id = group.conversationId,
                             name = group.name,
                             getCurrentState = { actionHandler.getGroupState(group) }
                         ) { state ->
@@ -256,6 +266,7 @@ class AddFriendDialog(
                         val friend = filteredFriends[index]
 
                         ListCardEntry(
+                            id = friend.userId,
                             bitmoji = friend.takeIf { it.bitmojiId != null }?.let {
                                 BitmojiSelfie.getBitmojiSelfie(it.selfieId, it.bitmojiId, BitmojiSelfie.BitmojiSelfieType.NEW_THREE_D)
                             },

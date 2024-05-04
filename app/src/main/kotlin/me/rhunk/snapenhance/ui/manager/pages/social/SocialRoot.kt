@@ -38,8 +38,8 @@ class SocialRoot : Routes.Route() {
     private var friendList: List<MessagingFriendInfo> by mutableStateOf(emptyList())
     private var groupList: List<MessagingGroupInfo> by mutableStateOf(emptyList())
 
-    fun updateScopeLists() {
-        context.coroutineScope.launch(Dispatchers.IO) {
+    private fun updateScopeLists() {
+        context.coroutineScope.launch {
             friendList = context.modDatabase.getFriends(descOrder = true)
             groupList = context.modDatabase.getGroups()
         }
@@ -53,7 +53,6 @@ class SocialRoot : Routes.Route() {
                 } else {
                     context.modDatabase.deleteFriend(friend.userId)
                 }
-                updateScopeLists()
             },
             onGroupState = { group, state ->
                 if (state) {
@@ -61,7 +60,6 @@ class SocialRoot : Routes.Route() {
                 } else {
                     context.modDatabase.deleteGroup(group.conversationId)
                 }
-                updateScopeLists()
             },
             getFriendState = { friend -> context.modDatabase.getFriendInfo(friend.userId) != null },
             getGroupState = { group -> context.modDatabase.getGroupInfo(group.conversationId) != null }
@@ -101,7 +99,7 @@ class SocialRoot : Routes.Route() {
                     SocialScope.FRIEND -> friendList[index].userId
                 }
 
-                Card(
+                ElevatedCard(
                     modifier = Modifier
                         .padding(10.dp)
                         .fillMaxWidth()
@@ -222,6 +220,11 @@ class SocialRoot : Routes.Route() {
         if (showAddFriendDialog) {
             addFriendDialog.Content {
                 showAddFriendDialog = false
+            }
+            DisposableEffect(Unit) {
+                onDispose {
+                    updateScopeLists()
+                }
             }
         }
 

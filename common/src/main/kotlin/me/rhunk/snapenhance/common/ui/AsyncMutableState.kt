@@ -3,44 +3,22 @@ package me.rhunk.snapenhance.common.ui
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import kotlinx.coroutines.*
+import java.util.concurrent.CopyOnWriteArrayList
 
-inline fun <T> MutableState<T>.asyncSet(
-    coroutineScope: CoroutineScope,
-    crossinline getter: () -> T
-): MutableState<T> {
-    coroutineScope.launch(Dispatchers.Main) {
-        value = withContext(Dispatchers.IO) {
-            getter()
-        }
-    }
-    return this
-}
+class AsyncUpdateDispatcher(
+    val updateOnFirstComposition: Boolean = true
+) {
+    private val callbacks = CopyOnWriteArrayList<suspend () -> Unit>()
 
-fun <T> SnapshotStateList<T>.asyncSet(
-    coroutineScope: CoroutineScope,
-    getter: () -> List<T>
-): SnapshotStateList<T> {
-    coroutineScope.launch(Dispatchers.Main) {
-        clear()
-        addAll(withContext(Dispatchers.IO) {
-            getter()
-        })
-    }
-    return this
-}
-
-class AsyncUpdateDispatcher {
-    private val callbacks = mutableListOf<() -> Unit>()
-
-    fun dispatch() {
+    suspend fun dispatch() {
         callbacks.forEach { it() }
     }
 
-    fun addCallback(callback: () -> Unit) {
+    fun addCallback(callback: suspend () -> Unit) {
         callbacks.add(callback)
     }
 
-    fun removeCallback(callback: () -> Unit) {
+    fun removeCallback(callback: suspend () -> Unit) {
         callbacks.remove(callback)
     }
 }
@@ -51,18 +29,17 @@ fun rememberAsyncUpdateDispatcher(): AsyncUpdateDispatcher {
 }
 
 @Composable
-inline fun <T> rememberAsyncMutableState(
-    defaultValue: T,
+private fun <T> rememberCommonState(
+    initialState: () -> T,
+    setter: suspend T.() -> Unit,
     updateDispatcher: AsyncUpdateDispatcher? = null,
     keys: Array<*> = emptyArray<Any>(),
-    crossinline getter: () -> T,
-): MutableState<T> {
-    val coroutineScope = rememberCoroutineScope()
-    return remember { mutableStateOf(defaultValue) }.apply {
-        var asyncSetCallback by remember { mutableStateOf({}) }
+): T {
+    return remember { initialState() }.apply {
+        var asyncSetCallback by remember { mutableStateOf(suspend {}) }
 
         LaunchedEffect(Unit) {
-            asyncSetCallback = { asyncSet(coroutineScope, getter) }
+            asyncSetCallback = { setter(this@apply) }
             updateDispatcher?.addCallback(asyncSetCallback)
         }
 
@@ -70,10 +47,33 @@ inline fun <T> rememberAsyncMutableState(
             onDispose { updateDispatcher?.removeCallback(asyncSetCallback) }
         }
 
-        LaunchedEffect(*keys) {
-            asyncSet(coroutineScope, getter)
+        if (updateDispatcher?.updateOnFirstComposition != false) {
+            LaunchedEffect(*keys) {
+                setter(this@apply)
+            }
         }
     }
+}
+
+@Composable
+fun <T> rememberAsyncMutableState(
+    defaultValue: T,
+    updateDispatcher: AsyncUpdateDispatcher? = null,
+    keys: Array<*> = emptyArray<Any>(),
+    getter: () -> T,
+): MutableState<T> {
+    return rememberCommonState(
+        initialState = { mutableStateOf(defaultValue) },
+        setter = {
+            withContext(Dispatchers.Main) {
+                value = withContext(Dispatchers.IO) {
+                    getter()
+                }
+            }
+        },
+        updateDispatcher = updateDispatcher,
+        keys = keys,
+    )
 }
 
 @Composable
@@ -83,28 +83,20 @@ fun <T> rememberAsyncMutableStateList(
     keys: Array<*> = emptyArray<Any>(),
     getter: () -> List<T>,
 ): SnapshotStateList<T> {
-    val coroutineScope = rememberCoroutineScope()
-
-    return remember { mutableStateListOf<T>().apply {
-        addAll(defaultValue)
-    } }.apply {
-        var asyncCallback by remember { mutableStateOf({}) }
-        LaunchedEffect(Unit) {
-            asyncCallback = {
-                asyncSet(coroutineScope, getter)
+    return rememberCommonState(
+        initialState = { mutableStateListOf<T>().apply {
+            addAll(defaultValue)
+        }},
+        setter = {
+            withContext(Dispatchers.Main) {
+                clear()
+                addAll(withContext(Dispatchers.IO) {
+                    getter()
+                })
             }
-            updateDispatcher?.addCallback(asyncCallback)
-        }
-
-        DisposableEffect(Unit) {
-            onDispose {
-                updateDispatcher?.removeCallback(asyncCallback)
-            }
-        }
-
-        LaunchedEffect(*keys) {
-            asyncSet(coroutineScope, getter)
-        }
-    }
+        },
+        updateDispatcher = updateDispatcher,
+        keys = keys,
+    )
 }
 
