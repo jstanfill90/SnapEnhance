@@ -27,7 +27,9 @@ import me.rhunk.snapenhance.RemoteSideContext
 import me.rhunk.snapenhance.common.ReceiversConfig
 import me.rhunk.snapenhance.common.data.MessagingFriendInfo
 import me.rhunk.snapenhance.common.data.MessagingGroupInfo
+import me.rhunk.snapenhance.common.util.snap.BitmojiSelfie
 import me.rhunk.snapenhance.common.util.snap.SnapWidgetBroadcastReceiverHelper
+import me.rhunk.snapenhance.ui.util.coil.BitmojiImage
 
 class AddFriendDialog(
     private val context: RemoteSideContext,
@@ -43,7 +45,12 @@ class AddFriendDialog(
     private val translation by lazy { context.translation.getCategory("manager.dialogs.add_friend")}
 
     @Composable
-    private fun ListCardEntry(name: String, getCurrentState: () -> Boolean, onState: (Boolean) -> Unit = {}) {
+    private fun ListCardEntry(
+        bitmoji: String? = null,
+        name: String,
+        getCurrentState: () -> Boolean,
+        onState: (Boolean) -> Unit = {},
+    ) {
         var currentState by remember { mutableStateOf(getCurrentState()) }
 
         Row(
@@ -54,8 +61,16 @@ class AddFriendDialog(
                     onState(currentState)
                 }
                 .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            BitmojiImage(
+                context = this@AddFriendDialog.context,
+                url = bitmoji,
+                modifier = Modifier.padding(end = 2.dp),
+                size = 32,
+            )
+
             Text(
                 text = name,
                 fontSize = 15.sp,
@@ -237,10 +252,13 @@ class AddFriendDialog(
                         )
                     }
 
-                    items(filteredFriends.size) {
-                        val friend = filteredFriends[it]
+                    items(filteredFriends.size) { index ->
+                        val friend = filteredFriends[index]
 
                         ListCardEntry(
+                            bitmoji = friend.takeIf { it.bitmojiId != null }?.let {
+                                BitmojiSelfie.getBitmojiSelfie(it.selfieId, it.bitmojiId, BitmojiSelfie.BitmojiSelfieType.NEW_THREE_D)
+                            },
                             name = friend.displayName?.takeIf { name -> name.isNotBlank() } ?: friend.mutableUsername,
                             getCurrentState = { actionHandler.getFriendState(friend) }
                         ) { state ->
